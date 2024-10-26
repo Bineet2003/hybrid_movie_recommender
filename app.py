@@ -14,28 +14,34 @@ app = Flask(__name__)
 tfidf = TfidfVectorizer()
 tfidf_matrix = tfidf.fit_transform(movies['genres'])
 
-# Function to get content-based recommendations
-def get_content_based_recommendations(movie_id, num_recommendations=5):
+# Function to get content-based recommendations using cosine similarity
+def get_content_based_recommendations(movie_id):
+    # Compute cosine similarity for the given movie
     cosine_sim = cosine_similarity(tfidf_matrix[movies.index[movies['movieId'] == movie_id]], tfidf_matrix)
-    similar_indices = cosine_sim[0].argsort()[-num_recommendations-1:-1][::-1]
-    return movies['movieId'].iloc[similar_indices].tolist()
+    # Get the index of similar movies
+    similar_indices = cosine_sim[0].argsort()[::-1]
+    # Return sorted movie indices (excluding the first one which is the same movie)
+    return [(movies['movieId'].iloc[i], cosine_sim[0][i]) for i in similar_indices if i != movies.index[movies['movieId'] == movie_id][0]]
 
-# Hybrid recommendation function with combined scoring
+# Hybrid recommendation function with combined scoring (multiplying scores)
 def hybrid_recommendations(user_id, movie_id, num_recommendations=5):
     # Get content-based recommendations
-    content_recommendations = get_content_based_recommendations(movie_id, num_recommendations)
+    content_recommendations = get_content_based_recommendations(movie_id)
 
-    # Get user-based collaborative filtering recommendations (example using KNN model)
-    user_recommendations = knn_model.kneighbors([[user_id]], num_neighbors=5, return_distance=False)
-    
+    # Get user-based collaborative filtering recommendations
+    user_recommendations = knn_model.kneighbors([[user_id]], n_neighbors=num_recommendations, return_distance=False)[0]
+
     # Combine recommendations
     combined_scores = {}
 
-    for movie in content_recommendations:
-        combined_scores[movie] = combined_scores.get(movie, 0) + 1  # Content score
+    # Store content-based scores
+    for movie_id, score in content_recommendations:
+        combined_scores[movie_id] = score  # Content score
 
-    for movie in user_recommendations[0]:
-        combined_scores[movie] = combined_scores.get(movie, 0) * 1.5  # Collaborative score
+    # Multiply scores from collaborative filtering
+    for movie_id in user_recommendations:
+        if movie_id in combined_scores:
+            combined_scores[movie_id] *= 1.5  # Adjust weight as needed
 
     # Sort movies by combined score and get top recommendations
     top_movies = sorted(combined_scores, key=combined_scores.get, reverse=True)[:num_recommendations]
